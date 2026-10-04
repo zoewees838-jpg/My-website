@@ -18,18 +18,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Automate your VIP channel subscriptions seamlessly.\n"
         "Click below to get started or manage your channel."
     )
+    
     keyboard = [
         [InlineKeyboardButton("💳 Subscribe to VIP Group", callback_data="sub")],
         [InlineKeyboardButton("⚙️ Setup Bot for My Channel", callback_data="setup")]
     ]
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 if __name__ == '__main__':
     if not BOT_TOKEN:
-        print("Error: BOT_TOKEN is missing!")
-    else:
-        app = ApplicationBuilder().token(BOT_TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        print("Nexora Bot is live running...")
-        app.run_polling()
+        raise ValueError("BOT_TOKEN environment variable not set!")
+    
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.run_polling()
