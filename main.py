@@ -3,7 +3,6 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Retrieve token from environment variables (configured on Render)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 logging.basicConfig(
@@ -29,7 +28,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN environment variable is not set!")
+        raise ValueError("BOT_TOKEN environment variable not set!")
     
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
