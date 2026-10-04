@@ -27,10 +27,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
-if __name__ == '__main__':
+def main():
     if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN environment variable not set!")
+        raise ValueError("BOT_TOKEN environment variable is not set!")
     
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.run_polling()
+
+if __name__ == '__main__':
+    main()
