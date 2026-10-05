@@ -12,6 +12,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 # Read Environment Variables set on Render
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY", "")
+WEB_APP_URL = os.environ.get("WEB_APP_URL", "https://nexora.app")  # Replace with your app URL if set
 PORT = int(os.environ.get("PORT", 5000))
 
 # ------------------- DATABASE SETUP -------------------
@@ -33,14 +34,16 @@ def activate_rental(telegram_id: int, reference: str, days: int = 30):
     conn = sqlite3.connect("rentals.db")
     cursor = conn.cursor()
     expiry_date = datetime.datetime.now() + datetime.timedelta(days=days)
+    # Store string formatted as YYYY-MM-DD HH:MM:SS
+    expiry_str = expiry_date.strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute('''
         INSERT OR REPLACE INTO rentals (telegram_id, reference, status, expires_at)
         VALUES (?, ?, 'active', ?)
-    ''', (telegram_id, reference, expiry_date))
+    ''', (telegram_id, reference, expiry_str))
     conn.commit()
     conn.close()
 
-def is_rental_active(telegram_id: int) -> bool:
+def get_rental_expiry(telegram_id: int):
     conn = sqlite3.connect("rentals.db")
     cursor = conn.cursor()
     cursor.execute('''
@@ -50,7 +53,15 @@ def is_rental_active(telegram_id: int) -> bool:
     row = cursor.fetchone()
     conn.close()
     if row:
-        expiry_date = datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S.%f")
+        try:
+            return datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S.%f")
+    return None
+
+def is_rental_active(telegram_id: int) -> bool:
+    expiry_date = get_rental_expiry(telegram_id)
+    if expiry_date:
         return datetime.datetime.now() < expiry_date
     return False
 
@@ -74,9 +85,15 @@ def create_paystack_url(email: str, telegram_id: int) -> str:
         print("Paystack Error:", e)
     return ""
 
-def send_telegram_message(telegram_id: int, text: str):
+def send_telegram_message(telegram_id: int, text: str, reply_markup: dict = None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": telegram_id, "text": text, "parse_mode": "Markdown"}
+    payload = {
+        "chat_id": telegram_id, 
+        "text": text, 
+        "parse_mode": "Markdown"
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     requests.post(url, json=payload)
 
 # ------------------- FLASK WEBHOOK SERVER -------------------
@@ -106,12 +123,29 @@ def paystack_webhook():
 
         # Activate rental for 30 days
         activate_rental(telegram_id, reference, days=30)
+        
+        # Calculate Expiry String for Message
+        expiry_date = (datetime.datetime.now() + datetime.timedelta(days=30)).strftime("%d %b, %Y")
+
+        welcome_text = (
+            f"✅ *Access Granted! Welcome to Nexora VIP.*\n\n"
+            f"Your *30-Day Rental Pass* is active! Here is what you get:\n\n"
+            f"🔓 *Unrestricted AI Access:* Full access to all Nexora AI features & tools.\n"
+            f"⚡ *Priority Processing Speed:* High-priority queue for fast output.\n"
+            f"🚫 *No Daily Limits or Cooldowns:* Zero usage caps or timers.\n"
+            f"🌟 *VIP Features & Updates:* Instant access to new updates.\n"
+            f"🛡️ *30-Day Validity:* Active until {expiry_date}.\n\n"
+            f"👇 Tap the button below to launch your workspace and enjoy your access:"
+        )
+
+        inline_keyboard = {
+            "inline_keyboard": [
+                [{"text": "🚀 Launch AI Workspace", "url": WEB_APP_URL}]
+            ]
+        }
 
         # Notify user instantly on Telegram
-        send_telegram_message(
-            telegram_id,
-            "🎉 **Payment Verified!**\n\nYour 30-day AI Tool rental is now **ACTIVE**. Tap 'Access AI Tool' in the bot menu to start."
-        )
+        send_telegram_message(telegram_id, welcome_text, reply_markup=inline_keyboard)
         return jsonify({"status": "success"}), 200
 
     return jsonify({"status": "ignored"}), 200
@@ -127,7 +161,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "Welcome to the **AI Tool Rental Portal**.\n\nRent full access to premium AI features for ₦1,500 per month.",
+        "Welcome to the *AI Tool Rental Portal*.\n\nRent full access to premium AI features for ₦1,500 per month.",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -153,14 +187,37 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "use_tool":
         if is_rental_active(telegram_id):
-            await query.edit_message_text("✅ **Access Granted!** Welcome to your AI Tool. Your 30-day rental pass is active.")
+            expiry_obj = get_rental_expiry(telegram_id)
+            expiry_str = expiry_obj.strftime("%d %b, %Y") if expiry_obj else "30 days"
+
+            access_text = (
+                f"✅ *Access Granted! Welcome to Nexora VIP.*\n\n"
+                f"Your *30-Day Rental Pass* is active! Here is what you get:\n\n"
+                f"🔓 *Unrestricted AI Access:* Full access to all Nexora AI features & tools.\n"
+                f"⚡ *Priority Processing Speed:* High-priority queue for fast output.\n"
+                f"🚫 *No Daily Limits or Cooldowns:* Zero usage caps or timers.\n"
+                f"🌟 *VIP Features & Updates:* Instant access to new updates.\n"
+                f"🛡️ *30-Day Validity:* Active until {expiry_str}.\n\n"
+                f"👇 Tap the button below to launch your workspace and enjoy your access:"
+            )
+
+            launch_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 Launch AI Workspace", url=WEB_APP_URL)]
+            ])
+
+            await query.edit_message_text(
+                text=access_text,
+                reply_markup=launch_keyboard,
+                parse_mode="Markdown"
+            )
         else:
             renew_button = InlineKeyboardMarkup([
                 [InlineKeyboardButton("Rent Pass — ₦1,500", callback_data="rent")]
             ])
             await query.edit_message_text(
-                "❌ **Access Denied**: You do not have an active rental pass.\n\nPlease subscribe to unlock access.",
-                reply_markup=renew_button
+                "❌ *Access Denied*: You do not have an active rental pass.\n\nPlease subscribe to unlock access.",
+                reply_markup=renew_button,
+                parse_mode="Markdown"
             )
 
 # ------------------- MAIN ENTRY POINT -------------------
