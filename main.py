@@ -125,7 +125,7 @@ def home():
 
 @app.route("/workspace")
 def workspace():
-    """Enterprise Luxury Gold & Purple UI Dashboard"""
+    """Enterprise Luxury Gold & Purple UI Dashboard with 30 AI Tools"""
     return """
     <!DOCTYPE html>
     <html lang="en">
@@ -171,9 +171,9 @@ def workspace():
 
             .brand-header {
                 text-align: center;
-                margin-bottom: 28px;
+                margin-bottom: 24px;
                 width: 100%;
-                max-width: 440px;
+                max-width: 460px;
             }
 
             .badge {
@@ -208,23 +208,35 @@ def workspace():
 
             .container {
                 width: 100%;
-                max-width: 440px;
+                max-width: 460px;
                 display: flex;
                 flex-direction: column;
-                gap: 14px;
+                gap: 12px;
+            }
+
+            .category-title {
+                font-size: 13px;
+                font-weight: 800;
+                color: var(--gold-primary);
+                letter-spacing: 1.5px;
+                text-transform: uppercase;
+                margin-top: 14px;
+                margin-bottom: 4px;
+                padding-left: 4px;
+                border-left: 3px solid var(--purple-light);
             }
 
             .card {
                 background: var(--bg-card);
                 border: 1px solid rgba(168, 85, 247, 0.2);
-                border-radius: 16px;
-                padding: 18px;
+                border-radius: 14px;
+                padding: 14px 16px;
                 backdrop-filter: blur(16px);
                 transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                gap: 16px;
+                gap: 12px;
             }
 
             .card:hover {
@@ -236,45 +248,52 @@ def workspace():
             .card-left {
                 display: flex;
                 align-items: center;
-                gap: 14px;
+                gap: 12px;
                 flex: 1;
+                min-width: 0;
             }
 
             .icon-wrapper {
-                width: 44px;
-                height: 44px;
-                border-radius: 12px;
+                width: 40px;
+                height: 40px;
+                border-radius: 10px;
                 background: linear-gradient(135deg, rgba(107, 33, 168, 0.6), rgba(30, 16, 50, 0.8));
                 border: 1px solid rgba(212, 175, 55, 0.3);
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 20px;
+                font-size: 18px;
                 flex-shrink: 0;
             }
 
             .card-details {
                 display: flex;
                 flex-direction: column;
+                overflow: hidden;
             }
 
             .card-title {
-                font-size: 15px;
+                font-size: 14px;
                 font-weight: 700;
                 color: #ffffff;
                 margin-bottom: 2px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
 
             .card-desc {
                 font-size: 11px;
                 color: var(--text-muted);
-                line-height: 1.3;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
 
             .btn-action {
-                padding: 10px 18px;
+                padding: 8px 16px;
                 border: none;
-                border-radius: 10px;
+                border-radius: 8px;
                 background: var(--gold-gradient);
                 color: #0b0612;
                 font-size: 12px;
@@ -304,55 +323,362 @@ def workspace():
         <div class="brand-header">
             <span class="badge">NEXORA PRO ACCESS</span>
             <h1>AI Intelligence Suite</h1>
-            <p class="subtitle">Select a verified tool to launch your session</p>
+            <p class="subtitle">30 Premium AI Tools • Single Unified Portal</p>
         </div>
 
         <div class="container">
 
-            <!-- ChatGPT Card -->
+            <!-- CATEGORY 1: CHAT & LLM ENGINES -->
+            <div class="category-title">Chat & Reasoning</div>
+
             <div class="card">
                 <div class="card-left">
                     <div class="icon-wrapper">🤖</div>
                     <div class="card-details">
-                        <div class="card-title">ChatGPT / GPT-4o</div>
-                        <div class="card-desc">Advanced reasoning & code engine</div>
+                        <div class="card-title">ChatGPT (GPT-4o)</div>
+                        <div class="card-desc">Advanced reasoning & multimodal engine</div>
                     </div>
                 </div>
                 <a href="https://chatgpt.com" target="_blank" class="btn-action">Launch</a>
             </div>
 
-            <!-- Claude Card -->
             <div class="card">
                 <div class="card-left">
                     <div class="icon-wrapper">⚡</div>
                     <div class="card-details">
                         <div class="card-title">Claude 3.5 Sonnet</div>
-                        <div class="card-desc">Long-context analysis & writing</div>
+                        <div class="card-desc">Nuanced writing & long context</div>
                     </div>
                 </div>
                 <a href="https://claude.ai" target="_blank" class="btn-action">Launch</a>
             </div>
 
-            <!-- Image AI Card -->
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">✨</div>
+                    <div class="card-details">
+                        <div class="card-title">Google Gemini Pro</div>
+                        <div class="card-desc">Real-time search & Google ecosystem</div>
+                    </div>
+                </div>
+                <a href="https://gemini.google.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🚀</div>
+                    <div class="card-details">
+                        <div class="card-title">Grok AI</div>
+                        <div class="card-desc">Real-time web trends & live X analysis</div>
+                    </div>
+                </div>
+                <a href="https://x.ai" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🐳</div>
+                    <div class="card-details">
+                        <div class="card-title">DeepSeek AI</div>
+                        <div class="card-desc">High-speed reasoning & open-source power</div>
+                    </div>
+                </div>
+                <a href="https://chat.deepseek.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🇫🇷</div>
+                    <div class="card-details">
+                        <div class="card-title">Mistral Le Chat</div>
+                        <div class="card-desc">European open-weights AI model</div>
+                    </div>
+                </div>
+                <a href="https://chat.mistral.ai" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+
+            <!-- CATEGORY 2: CODING & DEVELOPER TOOLS -->
+            <div class="category-title">Coding & App Builders</div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">💻</div>
+                    <div class="card-details">
+                        <div class="card-title">Cursor AI</div>
+                        <div class="card-desc">AI-first code editor & autocomplete</div>
+                    </div>
+                </div>
+                <a href="https://cursor.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">⚡</div>
+                    <div class="card-details">
+                        <div class="card-title">Bolt.new</div>
+                        <div class="card-desc">In-browser full-stack web app builder</div>
+                    </div>
+                </div>
+                <a href="https://bolt.new" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">💖</div>
+                    <div class="card-details">
+                        <div class="card-title">Lovable AI</div>
+                        <div class="card-desc">Prompt-to-production web apps</div>
+                    </div>
+                </div>
+                <a href="https://lovable.dev" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">⚡</div>
+                    <div class="card-details">
+                        <div class="card-title">v0 by Vercel</div>
+                        <div class="card-desc">Generative UI components & React code</div>
+                    </div>
+                </div>
+                <a href="https://v0.dev" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🐙</div>
+                    <div class="card-details">
+                        <div class="card-title">GitHub Copilot</div>
+                        <div class="card-desc">Enterprise developer pair-programming</div>
+                    </div>
+                </div>
+                <a href="https://github.com/features/copilot" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">⚡</div>
+                    <div class="card-details">
+                        <div class="card-title">Replit Agent</div>
+                        <div class="card-desc">Autonomous cloud app development</div>
+                    </div>
+                </div>
+                <a href="https://replit.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+
+            <!-- CATEGORY 3: IMAGE & GRAPHIC DESIGN -->
+            <div class="category-title">Image & Design Studio</div>
+
             <div class="card">
                 <div class="card-left">
                     <div class="icon-wrapper">🎨</div>
                     <div class="card-details">
-                        <div class="card-title">Ideogram Studio</div>
-                        <div class="card-desc">Professional typography & design</div>
+                        <div class="card-title">Midjourney</div>
+                        <div class="card-desc">Photorealistic image generation</div>
+                    </div>
+                </div>
+                <a href="https://midjourney.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🔤</div>
+                    <div class="card-details">
+                        <div class="card-title">Ideogram 2.0</div>
+                        <div class="card-desc">Graphic typography & poster design</div>
                     </div>
                 </div>
                 <a href="https://ideogram.ai" target="_blank" class="btn-action">Launch</a>
             </div>
 
-            <!-- Gemini Card -->
             <div class="card">
                 <div class="card-left">
-                    <div class="icon-wrapper">✨</div>
-                    <div class="card-title">Google Gemini Pro</div>
-                    <div class="card-desc">Real-time multimodal search</div>
+                    <div class="icon-wrapper">🖼</div>
+                    <div class="card-details">
+                        <div class="card-title">Leonardo AI</div>
+                        <div class="card-desc">Custom visual assets & game graphics</div>
+                    </div>
                 </div>
-                <a href="https://gemini.google.com" target="_blank" class="btn-action">Launch</a>
+                <a href="https://leonardo.ai" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">📐</div>
+                    <div class="card-details">
+                        <div class="card-title">Canva Magic Studio</div>
+                        <div class="card-desc">AI graphics, banners & layouts</div>
+                    </div>
+                </div>
+                <a href="https://canva.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🔮</div>
+                    <div class="card-details">
+                        <div class="card-title">FLUX.1 Generator</div>
+                        <div class="card-desc">Ultra-detailed open image model</div>
+                    </div>
+                </div>
+                <a href="https://fal.ai" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+
+            <!-- CATEGORY 4: VIDEO CREATION & GENERATION -->
+            <div class="category-title">Video Synthesis</div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🎬</div>
+                    <div class="card-details">
+                        <div class="card-title">Runway Gen-3</div>
+                        <div class="card-desc">Cinematic AI video generation</div>
+                    </div>
+                </div>
+                <a href="https://runwayml.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🎥</div>
+                    <div class="card-details">
+                        <div class="card-title">Luma Dream Machine</div>
+                        <div class="card-desc">Realistic motion & 3D video creation</div>
+                    </div>
+                </div>
+                <a href="https://lumalabs.ai" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🎞</div>
+                    <div class="card-details">
+                        <div class="card-title">Pika Labs</div>
+                        <div class="card-desc">Text & image animated video generator</div>
+                    </div>
+                </div>
+                <a href="https://pika.art" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🗣</div>
+                    <div class="card-details">
+                        <div class="card-title">Synthesia AI</div>
+                        <div class="card-desc">AI video avatars & automated presenters</div>
+                    </div>
+                </div>
+                <a href="https://synthesia.io" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">✂️</div>
+                    <div class="card-details">
+                        <div class="card-title">Opus Clip</div>
+                        <div class="card-desc">AI short-form video repurposing</div>
+                    </div>
+                </div>
+                <a href="https://opus.pro" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+
+            <!-- CATEGORY 5: AUDIO & VOICE CREATION -->
+            <div class="category-title">Audio & Voice</div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🎙</div>
+                    <div class="card-details">
+                        <div class="card-title">ElevenLabs</div>
+                        <div class="card-desc">Hyper-realistic text-to-speech & cloning</div>
+                    </div>
+                </div>
+                <a href="https://elevenlabs.io" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🎵</div>
+                    <div class="card-details">
+                        <div class="card-title">Suno AI</div>
+                        <div class="card-desc">Full song generation from text prompt</div>
+                    </div>
+                </div>
+                <a href="https://suno.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🎸</div>
+                    <div class="card-details">
+                        <div class="card-title">Udio Music</div>
+                        <div class="card-desc">Studio-quality music synthesis</div>
+                    </div>
+                </div>
+                <a href="https://udio.com" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+
+            <!-- CATEGORY 6: RESEARCH, SEARCH & PRODUCTIVITY -->
+            <div class="category-title">Research & Productivity</div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🔎</div>
+                    <div class="card-details">
+                        <div class="card-title">Perplexity AI</div>
+                        <div class="card-desc">Citation-backed conversational search</div>
+                    </div>
+                </div>
+                <a href="https://perplexity.ai" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">📚</div>
+                    <div class="card-details">
+                        <div class="card-title">NotebookLM</div>
+                        <div class="card-desc">Google AI document synthesizer & podcasts</div>
+                    </div>
+                </div>
+                <a href="https://notebooklm.google" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">📊</div>
+                    <div class="card-details">
+                        <div class="card-title">Gamma App</div>
+                        <div class="card-desc">Generative AI presentations & docs</div>
+                    </div>
+                </div>
+                <a href="https://gamma.app" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">📝</div>
+                    <div class="card-details">
+                        <div class="card-title">Notion AI</div>
+                        <div class="card-desc">Integrated notes, wiki & summary agent</div>
+                    </div>
+                </div>
+                <a href="https://notion.so" target="_blank" class="btn-action">Launch</a>
+            </div>
+
+            <div class="card">
+                <div class="card-left">
+                    <div class="icon-wrapper">🎧</div>
+                    <div class="card-details">
+                        <div class="card-title">Fathom AI</div>
+                        <div class="card-desc">Meeting recorder & automated summary</div>
+                    </div>
+                </div>
+                <a href="https://fathom.video" target="_blank" class="btn-action">Launch</a>
             </div>
 
         </div>
@@ -397,9 +723,9 @@ def paystack_webhook():
         welcome_text = (
             f"👑 *Subscription Activated — Nexora Executive*\n\n"
             f"Your 30-Day All-Access Pass is now active through *{expiry_date}*.\n\n"
-            f"✦ *Unlimited Tool Access:* GPT-4o, Claude 3.5, Ideogram & Gemini Pro\n"
+            f"✦ *30 Top-Tier AI Tools:* Access LLMs, App Builders, Image, Video & Audio tools\n"
             f"✦ *Zero Latency:* Priority high-speed server allocation\n"
-            f"✦ *Uncapped Usage:* No cooldown timers or daily caps\n\n"
+            f"✦ *Uncapped Usage:* Unified luxury executive suite\n\n"
             f"Tap below to launch your workspace:"
         )
 
@@ -430,7 +756,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             f"👑 *Nexora Executive Portal*\n\n"
             f"Status: *Active VIP Pass* (Valid until {expiry_str})\n"
-            f"Access your suite of premium AI engines directly inside Telegram below:"
+            f"Access 30 premium AI engines directly inside your workspace below:"
         )
         keyboard = [
             [InlineKeyboardButton("⚡ Open AI Workspace", web_app=WebAppInfo(url=f"{WEB_APP_URL}/workspace"))],
@@ -439,7 +765,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         text = (
             f"🏛 *Welcome to Nexora AI Studio*\n\n"
-            f"Gain instant access to top-tier AI platforms (ChatGPT-4o, Claude 3.5, Ideogram, Gemini Pro) under one unified workspace.\n\n"
+            f"Gain instant access to 30 top-tier AI platforms (ChatGPT, Claude, Cursor, Ideogram, Midjourney, ElevenLabs, Runway & more) under one unified workspace.\n\n"
             f"• *Plan:* 30-Day Executive Pass\n"
             f"• *Price:* ₦1,500 / month\n"
             f"• *Activation:* Automatic instant delivery"
