@@ -550,17 +550,21 @@ def cmd_settle(message):
     conn.close()
 
 # ---------------------------------------------------------
-# SERVER STARTUP (RESOLVES PORT CONFLICTS ON RENDER)
+# SERVER STARTUP (RESOLVES BLOCKING THREAD CONFLICTS)
 # ---------------------------------------------------------
-def run_bot():
-    print("⚡ Nexora Telegram Bot Starting...")
-    bot.remove_webhook()
-    bot.infinity_polling(skip_pending=True)
+def run_flask():
+    port = int(os.getenv("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 if __name__ == "__main__":
-    # Start Telegram polling thread in background
-    threading.Thread(target=run_bot, daemon=True).start()
-    
-    # Run Flask server on Render's provided environment PORT
-    port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # Start Flask server in a separate background thread
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    # Run Telegram Bot polling directly on the main thread
+    print("⚡ Nexora Telegram Bot Starting...")
+    try:
+        bot.remove_webhook()
+    except Exception as e:
+        print(f"Webhook clear warning: {e}")
+        
+    bot.infinity_polling(skip_pending=True)
