@@ -34,7 +34,7 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     
-    # Users table: Defaults balance to 0.00 until approved
+    # Users table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -347,7 +347,6 @@ def api_get_user(user_id):
         "account_status": user["account_status"]
     })
 
-# FIXED: 'methods' is plural here to avoid the Flask crash
 @app.route('/api/verify-code', methods=['POST'])
 def api_verify_code():
     data = request.json
@@ -364,7 +363,6 @@ def api_verify_code():
         return jsonify({"success": True})
     return jsonify({"success": False, "message": "Invalid code or bet already placed."})
 
-# FIXED: 'methods' is plural here to avoid the Flask crash
 @app.route('/api/place-bet', methods=['POST'])
 def api_place_bet():
     data = request.json
@@ -552,7 +550,7 @@ def cmd_settle(message):
     conn.close()
 
 # ---------------------------------------------------------
-# SERVER STARTUP
+# SERVER STARTUP (RESOLVES PORT CONFLICTS ON RENDER)
 # ---------------------------------------------------------
 def run_bot():
     print("⚡ Nexora Telegram Bot Starting...")
@@ -560,6 +558,9 @@ def run_bot():
     bot.infinity_polling(skip_pending=True)
 
 if __name__ == "__main__":
+    # Start Telegram polling thread in background
     threading.Thread(target=run_bot, daemon=True).start()
-    port = int(os.getenv("PORT", 5000))
+    
+    # Run Flask server on Render's provided environment PORT
+    port = int(os.getenv("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
