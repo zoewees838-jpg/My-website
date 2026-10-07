@@ -3,6 +3,7 @@ import sqlite3
 import random
 import string
 import threading
+import time
 from flask import Flask, render_template_string, request, jsonify
 import telebot
 from telebot import types
@@ -550,7 +551,7 @@ def cmd_settle(message):
     conn.close()
 
 # ---------------------------------------------------------
-# SERVER STARTUP (RESOLVES BLOCKING THREAD CONFLICTS)
+# SERVER STARTUP (RESOLVES BLOCKING THREAD CONFLICTS & 409 ERRORS)
 # ---------------------------------------------------------
 def run_flask():
     port = int(os.getenv("PORT", 10000))
@@ -560,11 +561,18 @@ if __name__ == "__main__":
     # Start Flask server in a separate background thread
     threading.Thread(target=run_flask, daemon=True).start()
 
-    # Run Telegram Bot polling directly on the main thread
     print("⚡ Nexora Telegram Bot Starting...")
+    
+    # Clear any old webhook once
     try:
         bot.remove_webhook()
     except Exception as e:
         print(f"Webhook clear warning: {e}")
-        
-    bot.infinity_polling(skip_pending=True)
+
+    # Resilient polling loop to handle Render zero-downtime deploy overlaps
+    while True:
+        try:
+            bot.infinity_polling(timeout=10, long_polling_timeout=5, skip_pending=True)
+        except Exception as e:
+            print(f"Polling error encountered: {e}")
+            time.sleep(5)
