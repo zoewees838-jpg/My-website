@@ -1,70 +1,67 @@
 import os
 import sqlite3
 import random
+import string
 import threading
-import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from flask import Flask, render_template_string, request, jsonify
 import telebot
 from telebot import types
 
 # ---------------------------------------------------------
-# ENVIRONMENT & BOT INITIALIZATION
+# ENVIRONMENT & BOT CONFIGURATION
 # ---------------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID")
+ADMIN_ID = os.getenv("ADMIN_ID")  # Numeric Telegram User ID of Admin
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://your-render-app-name.onrender.com")
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is not set!")
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
+app = Flask(__name__)
+
+DB_NAME = "apex_nexora.db"
 
 # ---------------------------------------------------------
-# DUMMY HTTP SERVER FOR RENDER PORT BINDING
+# DATABASE INITIALIZATION & HELPERS
 # ---------------------------------------------------------
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Apex Bet Sportsbook Engine Running")
-
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        return  # Suppress stdout web logging
-
-def run_http_server():
-    port = int(os.getenv("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    server.serve_forever()
-
-threading.Thread(target=run_http_server, daemon=True).start()
-
-# ---------------------------------------------------------
-# DATABASE INITIALIZATION
-# ---------------------------------------------------------
-DB_NAME = "apex_bet.db"
+def get_db():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db()
     cursor = conn.cursor()
     
-    # Users table
+    # Users table: Initial balance defaults to 0.00
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
-            balance REAL DEFAULT 5000.00
+            balance REAL DEFAULT 0.00,
+            account_status TEXT DEFAULT 'PENDING'
         )
     """)
     
-    # Bets table
+    # Deposits table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deposit_requests (
+            deposit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount REAL DEFAULT 100.00,
+            status TEXT DEFAULT 'PENDING_APPROVAL',
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Bets table with unique access code field
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS bets (
             bet_id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
+            bet_code TEXT UNIQUE,
             match_name TEXT,
             selection TEXT,
             odds REAL,
@@ -79,261 +76,572 @@ def init_db():
 
 init_db()
 
-# Database Helper Functions
-def get_user(user_id, username="User"):
-    conn = sqlite3.connect(DB_NAME)
+def generate_bet_code():
+    """Generates a secure 8-character unique alphanumeric bet code."""
+    chars = string.ascii_uppercase + string.digits
+    return "NEX-" + "".join(random.choices(chars, k=6))
+
+def get_or_create_user(user_id, username="Bettor"):
+    conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT user_id, username, balance FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
     if not user:
-        cursor.execute("INSERT INTO users (user_id, username, balance) VALUES (?, ?, ?)", (user_id, username, 5000.00))
+        cursor.execute(
+            "INSERT INTO users (user_id, username, balance, account_status) VALUES (?, ?, 0.00, 'PENDING')",
+            (user_id, username)
+        )
         conn.commit()
-        user = (user_id, username, 5000.00)
+        cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        user = cursor.fetchone()
     conn.close()
     return user
 
-def update_balance(user_id, amount):
-    conn = sqlite3.connect(DB_NAME)
+# ---------------------------------------------------------
+# FLASK WEB APP ROUTES (MINI APP ENDPOINTS)
+# ---------------------------------------------------------
+WEBAPP_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexora VIP Manager Terminal</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: #0d0e12;
+            --card-bg: #161820;
+            --pink-accent: #ff2a85;
+            --pink-glow: rgba(255, 42, 133, 0.3);
+            --green-accent: #00ff87;
+            --green-glow: rgba(0, 255, 135, 0.3);
+            --text-main: #ffffff;
+            --text-muted: #8a8f9d;
+            --border-color: #262936;
+        }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        .header-card {
+            background: linear-gradient(135deg, #1f1124 0%, #0d1e18 100%);
+            border: 1px solid var(--pink-accent);
+            box-shadow: 0 0 15px var(--pink-glow);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .header-title {
+            color: var(--pink-accent);
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin: 0 0 6px 0;
+        }
+
+        .balance-box {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--green-accent);
+            text-shadow: 0 0 10px var(--green-glow);
+            margin: 10px 0;
+        }
+
+        .badge-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            background-color: #ff2a8522;
+            color: var(--pink-accent);
+            border: 1px solid var(--pink-accent);
+        }
+
+        .section-title {
+            font-size: 14px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 20px 0 10px 0;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 15px;
+        }
+
+        .input-group {
+            margin-bottom: 12px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 12px;
+            background: #0d0e12;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--green-accent);
+            font-family: monospace;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--pink-accent);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 14px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-pink {
+            background: var(--pink-accent);
+            color: #ffffff;
+            box-shadow: 0 0 12px var(--pink-glow);
+        }
+
+        .btn-green {
+            background: var(--green-accent);
+            color: #0d0e12;
+            box-shadow: 0 0 12px var(--green-glow);
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .odds-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .odds-btn {
+            background: #0d0e12;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 4px;
+            color: var(--text-main);
+            text-align: center;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .odds-btn span {
+            display: block;
+            color: var(--green-accent);
+            font-weight: bold;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .odds-btn.selected {
+            border-color: var(--pink-accent);
+            background: #ff2a8515;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header-card">
+        <div class="header-title">Nexora VIP Terminal</div>
+        <div class="balance-box">₦<span id="user-balance">0.00</span></div>
+        <div id="account-status" class="badge-status">DEPOSIT REQUIRED</div>
+    </div>
+
+    <div class="card">
+        <div class="input-group">
+            <label>ENTER BET ACCESS CODE</label>
+            <input type="text" id="bet-code-input" class="input-field" placeholder="e.g. NEX-AB1234" uppercase>
+        </div>
+        <button id="verify-code-btn" class="btn btn-pink" onclick="verifyCode()">Verify Access Code</button>
+    </div>
+
+    <div id="betting-section" class="card" style="display: none;">
+        <div style="font-size: 14px; font-weight: bold; color: var(--pink-accent);">⚽ Real Madrid vs Man United</div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">Format: 2x (30 Mins + 3 Mins Stoppage)</div>
+        
+        <div class="odds-grid">
+            <div class="odds-btn" onclick="selectMarket('1', 2.10, this)">
+                RM (1)
+                <span>2.10</span>
+            </div>
+            <div class="odds-btn" onclick="selectMarket('X', 3.40, this)">
+                Draw (X)
+                <span>3.40</span>
+            </div>
+            <div class="odds-btn" onclick="selectMarket('2', 3.25, this)">
+                MU (2)
+                <span>3.25</span>
+            </div>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <label style="font-size: 11px; color: var(--text-muted);">FIXED STAKE AMOUNT</label>
+            <input type="text" class="input-field" value="₦100.00" disabled style="margin-top: 4px;">
+        </div>
+
+        <button id="place-bet-btn" class="btn btn-green" style="margin-top: 15px;" onclick="placeBet()" disabled>Confirm Wager</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        let selectedMarket = null;
+        let selectedOdds = 0;
+        let activeBetCode = '';
+
+        const userId = tg.initDataUnsafe?.user?.id || 0;
+
+        async function fetchUserData() {
+            if (!userId) return;
+            try {
+                const res = await fetch(`/api/user/${userId}`);
+                const data = await res.json();
+                document.getElementById('user-balance').innerText = data.balance.toFixed(2);
+                document.getElementById('account-status').innerText = data.account_status;
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function verifyCode() {
+            const code = document.getElementById('bet-code-input').value.trim();
+            if (!code) {
+                tg.showAlert('Please enter your Bet Access Code.');
+                return;
+            }
+
+            const res = await fetch('/api/verify-code', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ user_id: userId, code: code })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                activeBetCode = code;
+                document.getElementById('betting-section').style.display = 'block';
+                document.getElementById('bet-code-input').disabled = true;
+                document.getElementById('verify-code-btn').disabled = true;
+                tg.showAlert('Access Code Verified!');
+            } else {
+                tg.showAlert(data.message || 'Invalid or used Access Code.');
+            }
+        }
+
+        function selectMarket(market, odds, el) {
+            document.querySelectorAll('.odds-btn').forEach(b => b.classList.remove('selected'));
+            el.classList.add('selected');
+            selectedMarket = market;
+            selectedOdds = odds;
+            document.getElementById('place-bet-btn').disabled = false;
+        }
+
+        async function placeBet() {
+            if (!selectedMarket || !activeBetCode) return;
+
+            const res = await fetch('/api/place-bet', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    user_id: userId,
+                    code: activeBetCode,
+                    selection: selectedMarket,
+                    odds: selectedOdds,
+                    stake: 100.0
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                tg.showAlert('Bet Placed Successfully!');
+                location.reload();
+            } else {
+                tg.showAlert(data.message || 'Failed to place bet.');
+            }
+        }
+
+        fetchUserData();
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(WEBAPP_HTML)
+
+@app.route('/api/user/<int:user_id>')
+def api_get_user(user_id):
+    user = get_or_create_user(user_id)
+    return jsonify({
+        "user_id": user["user_id"],
+        "balance": user["balance"],
+        "account_status": user["account_status"]
+    })
+
+@app.route('/api/verify-code', method=['POST'])
+def api_verify_code():
+    data = request.json
+    user_id = data.get('user_id')
+    code = data.get('code', '').strip()
+
+    conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-    conn.commit()
+    cursor.execute("SELECT * FROM bets WHERE bet_code = ? AND user_id = ? AND status = 'PENDING'", (code, user_id))
+    bet = cursor.fetchone()
     conn.close()
 
-def place_bet_db(user_id, match_name, selection, odds, stake):
-    potential = stake * odds
-    conn = sqlite3.connect(DB_NAME)
+    if bet:
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Invalid code or bet already placed."})
+
+@app.route('/api/place-bet', methods=['POST'])
+def api_place_bet():
+    data = request.json
+    user_id = data.get('user_id')
+    code = data.get('code')
+    selection = data.get('selection')
+    odds = data.get('odds')
+    stake = float(data.get('stake', 100.0))
+
+    user = get_or_create_user(user_id)
+
+    if user["balance"] < stake:
+        return jsonify({"success": False, "message": "Insufficient balance. Deposit ₦100 to continue."})
+
+    conn = get_db()
     cursor = conn.cursor()
+    
+    # Deduct balance & confirm wager against generated code
     cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (stake, user_id))
     cursor.execute("""
-        INSERT INTO bets (user_id, match_name, selection, odds, stake, potential_payout)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, match_name, selection, odds, stake, potential))
-    bet_id = cursor.lastrowid
+        UPDATE bets 
+        SET selection = ?, odds = ?, stake = ?, potential_payout = ?, status = 'PLACED'
+        WHERE bet_code = ? AND user_id = ?
+    """, (selection, odds, stake, stake * odds, code, user_id))
+
     conn.commit()
     conn.close()
-    return bet_id, potential
 
-def get_user_bets(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT bet_id, match_name, selection, odds, stake, potential_payout, status FROM bets WHERE user_id = ? ORDER BY bet_id DESC LIMIT 5", (user_id,))
-    bets = cursor.fetchall()
-    conn.close()
-    return bets
+    return jsonify({"success": True})
 
 # ---------------------------------------------------------
-# FIXTURE & ODDS CALCULATION
-# ---------------------------------------------------------
-# Real Madrid vs Manchester United
-# Match scheduled for 5:00 PM (17:00 local time)
-MATCH_DETAILS = {
-    "home": "Real Madrid",
-    "away": "Manchester United",
-    "kickoff": "Today / Tomorrow @ 5:00 PM",
-    "time_str": "17:00",
-    "format": "2x (30 Mins + 3 Mins Stoppage)",
-    "odds": {
-        "1": 2.10,      # Real Madrid Win
-        "X": 3.40,      # Draw
-        "2": 3.25,      # Manchester United Win
-        "O2.5": 1.85,   # Over 2.5 Goals
-        "U2.5": 1.95,   # Under 2.5 Goals
-        "BTTS_Y": 1.70, # Both Teams To Score - Yes
-        "BTTS_N": 2.10  # Both Teams To Score - No
-    }
-}
-
-# ---------------------------------------------------------
-# UI KEYBOARDS & UI BUILDERS
-# ---------------------------------------------------------
-def main_menu_keyboard():
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    b1 = types.InlineKeyboardButton("🏆 Featured Fixtures", callback_data="view_fixtures")
-    b2 = types.InlineKeyboardButton("💳 VIP Wallet", callback_data="view_wallet")
-    b3 = types.InlineKeyboardButton("📜 Active Slips", callback_data="view_slips")
-    b4 = types.InlineKeyboardButton("⏱️ Live Match Schedule", callback_data="view_clock")
-    markup.add(b1, b2)
-    markup.add(b3, b4)
-    return markup
-
-def match_odds_keyboard():
-    markup = types.InlineKeyboardMarkup(row_width=3)
-    o = MATCH_DETAILS["odds"]
-    
-    # 1X2 Market
-    b_home = types.InlineKeyboardButton(f"1 (RM): {o['1']}", callback_data="bet_1")
-    b_draw = types.InlineKeyboardButton(f"X (Draw): {o['X']}", callback_data="bet_X")
-    b_away = types.InlineKeyboardButton(f"2 (MU): {o['2']}", callback_data="bet_2")
-    
-    # Goals Market
-    b_o25 = types.InlineKeyboardButton(f"Over 2.5: {o['O2.5']}", callback_data="bet_O2.5")
-    b_u25 = types.InlineKeyboardButton(f"Under 2.5: {o['U2.5']}", callback_data="bet_U2.5")
-    
-    # BTTS
-    b_btts_y = types.InlineKeyboardButton(f"BTTS Yes: {o['BTTS_Y']}", callback_data="bet_BTTS_Y")
-    b_btts_n = types.InlineKeyboardButton(f"BTTS No: {o['BTTS_N']}", callback_data="bet_BTTS_N")
-    
-    b_back = types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")
-    
-    markup.add(b_home, b_draw, b_away)
-    markup.add(b_o25, b_u25)
-    markup.add(b_btts_y, b_btts_n)
-    markup.add(b_back)
-    return markup
-
-# ---------------------------------------------------------
-# BOT HANDLERS
+# TELEGRAM BOT HANDLERS & WORKFLOWS
 # ---------------------------------------------------------
 @bot.message_handler(commands=['start', 'menu'])
-def send_welcome(message):
-    user = get_user(message.from_user.id, message.from_user.first_name)
+def cmd_start(message):
+    user_id = message.from_user.id
+    user = get_or_create_user(user_id, message.from_user.first_name)
+
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    
+    # Mini App Launch Button
+    webapp_info = types.WebAppInfo(f"{WEBAPP_URL}")
+    btn_launch = types.InlineKeyboardButton("🚀 Launch Nexora VIP Manager", webapp=webapp_info)
+    btn_deposit = types.InlineKeyboardButton("💳 Request Deposit (₦100)", callback_data="req_deposit")
+    btn_generate_code = types.InlineKeyboardButton("🔑 Generate Bet Access Code", callback_data="gen_code")
+    
+    markup.add(btn_launch, btn_deposit, btn_generate_code)
+
     welcome_text = (
-        f"👑 <b>APEX BET VIP SPORTSBOOK</b>\n"
-        f"<i>Premium Automated Betting Terminal</i>\n\n"
-        f"👤 <b>Bettor:</b> {user[1]}\n"
-        f"💰 <b>Wallet Balance:</b> ₦{user[2]:,.2f}\n"
-        f"⚡ <b>System Status:</b> Operational\n\n"
-        f"Select an option below to view live odds or manage your account:"
+        f"👑 <b>NEXORA VIP TERMINAL</b>\n"
+        f"-----------------------------------------\n"
+        f"👤 <b>Bettor:</b> {user['username']}\n"
+        f"💰 <b>Balance:</b> ₦{user['balance']:,.2f}\n"
+        f"🛡️ <b>Status:</b> <code>{user['account_status']}</code>\n"
+        f"-----------------------------------------\n"
+        f"<i>Tap below to launch the VIP Manager Mini App or request funding.</i>"
     )
-    bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu_keyboard())
+    bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
     user_id = call.from_user.id
-    user = get_user(user_id, call.from_user.first_name)
+    user = get_or_create_user(user_id, call.from_user.first_name)
 
-    if call.data == "main_menu":
-        text = (
-            f"👑 <b>APEX BET VIP SPORTSBOOK</b>\n\n"
-            f"👤 <b>Account:</b> {user[1]}\n"
-            f"💰 <b>Balance:</b> ₦{user[2]:,.2f}\n\n"
-            f"Select an option to proceed:"
+    if call.data == "req_deposit":
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO deposit_requests (user_id, amount) VALUES (?, 100.00)", (user_id,))
+        dep_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        bot.answer_callback_query(call.id, "Deposit request for ₦100 submitted to Admin.", show_alert=True)
+
+        # Notify Admin for manual cash confirmation
+        if ADMIN_ID:
+            admin_markup = types.InlineKeyboardMarkup(row_width=2)
+            b_approve = types.InlineKeyboardButton("✅ Approve ₦100", callback_data=f"adm_approve_{dep_id}_{user_id}")
+            b_reject = types.InlineKeyboardButton("❌ Reject", callback_data=f"adm_reject_{dep_id}_{user_id}")
+            admin_markup.add(b_approve, b_reject)
+
+            bot.send_message(
+                ADMIN_ID,
+                f"📥 <b>NEW DEPOSIT REQUEST #{dep_id}</b>\n\n"
+                f"👤 <b>User:</b> {user['username']} (<code>{user_id}</code>)\n"
+                f"💵 <b>Amount:</b> ₦100.00\n\n"
+                f"Confirm physical/cash deposit before approval:",
+                reply_markup=admin_markup
+            )
+
+    elif call.data == "gen_code":
+        code = generate_bet_code()
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO bets (user_id, bet_code, match_name, status) VALUES (?, ?, 'Real Madrid vs Man United', 'PENDING')",
+            (user_id, code)
         )
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu_keyboard())
+        conn.commit()
+        conn.close()
 
-    elif call.data == "view_fixtures":
-        m = MATCH_DETAILS
-        text = (
-            f"⚽ <b>UPCOMING FEATURED FIXTURE</b>\n"
+        msg = (
+            f"🔑 <b>BET ACCESS CODE GENERATED</b>\n"
             f"-----------------------------------------\n"
-            f"🔥 <b>{m['home']} vs {m['away']}</b>\n"
-            f"⏰ <b>Kickoff Time:</b> 5:00 PM Sharp\n"
-            f"⏱️ <b>Format:</b> {m['format']}\n"
+            f"Code: <code>{code}</code>\n"
             f"-----------------------------------------\n"
-            f"<b>Match Odds (1X2 & Markets):</b>\n"
-            f"• Real Madrid (1): <code>{m['odds']['1']}</code>\n"
-            f"• Draw (X): <code>{m['odds']['X']}</code>\n"
-            f"• Man United (2): <code>{m['odds']['2']}</code>\n"
-            f"• Over 2.5 Goals: <code>{m['odds']['O2.5']}</code>\n"
-            f"• Both Teams To Score: <code>{m['odds']['BTTS_Y']}</code>\n\n"
-            f"<i>Tap a market below to select your wager:</i>"
+            f"<i>Copy this code and paste it inside the Nexora VIP Mini App to unlock bet placement.</i>"
         )
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=match_odds_keyboard())
+        bot.send_message(call.message.chat.id, msg)
 
-    elif call.data.startswith("bet_"):
-        selection_key = call.data.replace("bet_", "")
-        odds = MATCH_DETAILS["odds"].get(selection_key, 2.00)
+    # ADMIN APPROVAL / REJECTION ACTIONS
+    elif call.data.startswith("adm_approve_"):
+        _, _, dep_id, target_user_id = call.data.split("_")
         
-        # Standard default stake for quick placement
-        stake = 1000.00
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE deposit_requests SET status = 'APPROVED' WHERE deposit_id = ?", (dep_id,))
+        cursor.execute("UPDATE users SET balance = balance + 100.00, account_status = 'ACTIVE' WHERE user_id = ?", (target_user_id,))
+        conn.commit()
+        conn.close()
+
+        bot.edit_message_text(f"✅ Approved Deposit #{dep_id} for User {target_user_id}.", call.message.chat.id, call.message.message_id)
+        bot.send_message(target_user_id, "🎉 <b>DEPOSIT CONFIRMED</b>\n\nYour ₦100.00 deposit has been confirmed by Admin. Your balance is updated!")
+
+    elif call.data.startswith("adm_reject_"):
+        _, _, dep_id, target_user_id = call.data.split("_")
         
-        if user[2] < stake:
-            bot.answer_callback_query(call.id, "❌ Insufficient balance! Please deposit funds.", show_alert=True)
-            return
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE deposit_requests SET status = 'REJECTED' WHERE deposit_id = ?", (dep_id,))
+        conn.commit()
+        conn.close()
 
-        match_name = f"{MATCH_DETAILS['home']} vs {MATCH_DETAILS['away']}"
-        bet_id, potential = place_bet_db(user_id, match_name, selection_key, odds, stake)
-        
-        updated_user = get_user(user_id)
-        
-        text = (
-            f"✅ <b>BET SLIP CONFIRMED #APX-{bet_id}</b>\n"
-            f"-----------------------------------------\n"
-            f"⚽ <b>Match:</b> {match_name}\n"
-            f"⏰ <b>Kickoff:</b> 5:00 PM\n"
-            f"🎯 <b>Selection:</b> {selection_key}\n"
-            f"📊 <b>Odds:</b> {odds}\n"
-            f"💵 <b>Stake:</b> ₦{stake:,.2f}\n"
-            f"🏆 <b>Potential Win:</b> ₦{potential:,.2f}\n"
-            f"-----------------------------------------\n"
-            f"💳 <b>Remaining Balance:</b> ₦{updated_user[2]:,.2f}"
-        )
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔙 Back to Fixtures", callback_data="view_fixtures"))
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
-    elif call.data == "view_wallet":
-        text = (
-            f"💳 <b>VIP WALLET OVERVIEW</b>\n"
-            f"-----------------------------------------\n"
-            f"👤 <b>Account Holder:</b> {user[1]}\n"
-            f"🆔 <b>User ID:</b> <code>{user[0]}</code>\n"
-            f"💵 <b>Available Balance:</b> ₦{user[2]:,.2f}\n"
-            f"-----------------------------------------\n"
-            f"<i>Use the quick action buttons below:</i>"
-        )
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        b_dep = types.InlineKeyboardButton("➕ Quick Deposit (₦5,000)", callback_data="quick_deposit")
-        b_back = types.InlineKeyboardButton("🔙 Back", callback_data="main_menu")
-        markup.add(b_dep)
-        markup.add(b_back)
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
-    elif call.data == "quick_deposit":
-        update_balance(user_id, 5000.00)
-        updated_user = get_user(user_id)
-        bot.answer_callback_query(call.id, "🎉 ₦5,000.00 successfully added to your balance!", show_alert=True)
-        
-        text = (
-            f"💳 <b>VIP WALLET OVERVIEW</b>\n"
-            f"-----------------------------------------\n"
-            f"👤 <b>Account Holder:</b> {updated_user[1]}\n"
-            f"💵 <b>Updated Balance:</b> ₦{updated_user[2]:,.2f}\n"
-            f"-----------------------------------------"
-        )
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu"))
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
-    elif call.data == "view_slips":
-        bets = get_user_bets(user_id)
-        if not bets:
-            text = "📜 <b>ACTIVE SLIPS</b>\n\nYou currently have no active bet slips placed."
-        else:
-            text = "📜 <b>YOUR RECENT BET SLIPS</b>\n-----------------------------------------\n"
-            for b in bets:
-                text += (
-                    f"🎟️ <b>Slip #APX-{b[0]}</b> | Status: <b>{b[6]}</b>\n"
-                    f"⚽ {b[1]}\n"
-                    f"🎯 Pick: {b[2]} @ {b[3]} | Stake: ₦{b[4]:,.2f}\n"
-                    f"🏆 Return: ₦{b[5]:,.2f}\n"
-                    f"-----------------------------------------\n"
-                )
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu"))
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
-    elif call.data == "view_clock":
-        text = (
-            f"⏱️ <b>MATCH TIMELINE & SCHEDULE</b>\n"
-            f"-----------------------------------------\n"
-            f"⚽ <b>Fixture:</b> Real Madrid vs Manchester United\n"
-            f"⏰ <b>Kickoff Time:</b> 5:00 PM Sharp\n\n"
-            f"📌 <b>Timeline breakdown:</b>\n"
-            f"• <b>5:00 PM:</b> First Half Kickoff (30m + 3m stoppage)\n"
-            f"• <b>5:33 PM:</b> Half Time Break (10 mins rest)\n"
-            f"• <b>5:43 PM:</b> Second Half Kickoff (30m + 3m stoppage)\n"
-            f"• <b>6:16 PM:</b> Full Time Whistle (66 Total Mins)\n"
-            f"-----------------------------------------\n"
-            f"<i>Betting markets close automatically at 5:00 PM.</i>"
-        )
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu"))
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text(f"❌ Rejected Deposit #{dep_id}.", call.message.chat.id, call.message.message_id)
+        bot.send_message(target_user_id, "❌ <b>DEPOSIT REJECTED</b>\n\nYour deposit request was not confirmed. Contact Admin.")
 
 # ---------------------------------------------------------
-# BOT STARTUP
+# ADMIN SETTLEMENT COMMANDS (WIN/LOSS NOTIFICATIONS)
 # ---------------------------------------------------------
-if __name__ == "__main__":
-    print("⚡ Apex Bet VIP Bot Running...")
+@bot.message_handler(commands=['settle'])
+def cmd_settle(message):
+    """
+    Usage: /settle <bet_code> <win/loss>
+    Admin command to settle bets and dispatch customer notifications.
+    """
+    if str(message.from_user.id) != str(ADMIN_ID):
+        return
+
+    try:
+        _, code, outcome = message.text.split()
+        outcome = outcome.lower()
+    except ValueError:
+        bot.reply_to(message, "Usage: <code>/settle <bet_code> <win|loss></code>")
+        return
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM bets WHERE bet_code = ?", (code,))
+    bet = cursor.fetchone()
+
+    if not bet:
+        bot.reply_to(message, "Bet code not found.")
+        conn.close()
+        return
+
+    target_user_id = bet["user_id"]
+
+    if outcome == "win":
+        payout = bet["potential_payout"]
+        cursor.execute("UPDATE bets SET status = 'WON' WHERE bet_code = ?", (code,))
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (payout, target_user_id))
+        conn.commit()
+
+        # Customer Win Notification
+        msg = (
+            f"🏆 <b>BET SLIP RESULT: WON</b>\n"
+            f"-----------------------------------------\n"
+            f"🎟️ <b>Slip Code:</b> <code>{code}</code>\n"
+            f"💵 <b>Payout:</b> ₦{payout:,.2f}\n"
+            f"-----------------------------------------\n"
+            f"📞 <b>Important:</b> Please contact your local manager to process your withdrawal payout."
+        )
+        bot.send_message(target_user_id, msg)
+        bot.reply_to(message, f"Bet {code} marked as WON. User notified.")
+
+    elif outcome == "loss":
+        cursor.execute("UPDATE bets SET status = 'LOST' WHERE bet_code = ?", (code,))
+        conn.commit()
+
+        # Customer Loss Notification
+        msg = (
+            f"📉 <b>BET SLIP RESULT: LOST</b>\n"
+            f"-----------------------------------------\n"
+            f"🎟️ <b>Slip Code:</b> <code>{code}</code>\n"
+            f"-----------------------------------------\n"
+            f"📞 <b>Notice:</b> Please contact your local manager for slip reconciliation and match analysis."
+        )
+        bot.send_message(target_user_id, msg)
+        bot.reply_to(message, f"Bet {code} marked as LOST. User notified.")
+
+    conn.close()
+
+# ---------------------------------------------------------
+# SERVER STARTUP
+# ---------------------------------------------------------
+def run_bot():
     bot.infinity_polling()
+
+if __name__ == "__main__":
+    # Run Telegram Polling in a background thread alongside Flask WebApp
+    threading.Thread(target=run_bot, daemon=True).start()
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
