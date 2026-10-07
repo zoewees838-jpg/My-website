@@ -1,229 +1,339 @@
-import sqlite3
 import os
-import hashlib
-from telebot import TeleBot, types
-from dotenv import load_dotenv
+import sqlite3
+import random
+import threading
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import telebot
+from telebot import types
 
-load_dotenv()
+# ---------------------------------------------------------
+# ENVIRONMENT & BOT INITIALIZATION
+# ---------------------------------------------------------
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = os.getenv("ADMIN_ID")
 
-# Bot Token & Admin User ID configuration
-TOKEN = os.getenv("BOT_TOKEN", "8706915052:AAHhz7uwkU8lSKqLG-FzvUAek27_LzTurck")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "8719436378"))
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is not set!")
 
-bot = TeleBot(TOKEN, parse_mode="HTML")
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# ------------------- DATABASE SETUP -------------------
-def get_db():
-    conn = sqlite3.connect("apex_bet.db")
-    conn.row_factory = sqlite3.Row
-    return conn
+# ---------------------------------------------------------
+# DUMMY HTTP SERVER FOR RENDER PORT BINDING
+# ---------------------------------------------------------
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Apex Bet Sportsbook Engine Running")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        return  # Suppress stdout web logging
+
+def run_http_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_http_server, daemon=True).start()
+
+# ---------------------------------------------------------
+# DATABASE INITIALIZATION
+# ---------------------------------------------------------
+DB_NAME = "apex_bet.db"
 
 def init_db():
-    conn = get_db()
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS matches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            team_a TEXT, team_b TEXT,
-            odds_a REAL, odds_draw REAL, odds_b REAL,
-            status TEXT DEFAULT 'UPCOMING'
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # Users table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            balance REAL DEFAULT 5000.00
         )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS tickets (
-            ticket_code TEXT PRIMARY KEY,
-            user_id INTEGER, username TEXT,
-            match_id INTEGER, selection TEXT,
-            stake REAL, payout REAL,
+    """)
+    
+    # Bets table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bets (
+            bet_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            match_name TEXT,
+            selection TEXT,
+            odds REAL,
+            stake REAL,
+            potential_payout REAL,
             status TEXT DEFAULT 'PENDING'
         )
-    ''')
+    """)
+    
     conn.commit()
     conn.close()
 
 init_db()
 
-# ------------------- UI LAYOUT TEMPLATES -------------------
-GOLD_HEADER = "✨ <b>=======================</b> ✨\n🏆 <b>APEX BET VIP SPORTSBOOK</b> 🏆\n✨ <b>=======================</b> ✨\n\n"
+# Database Helper Functions
+def get_user(user_id, username="User"):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, username, balance FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        cursor.execute("INSERT INTO users (user_id, username, balance) VALUES (?, ?, ?)", (user_id, username, 5000.00))
+        conn.commit()
+        user = (user_id, username, 5000.00)
+    conn.close()
+    return user
 
-# ------------------- USER COMMANDS -------------------
-@bot.message_handler(commands=['start', 'menu'])
-def send_welcome(message):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btn_matches = types.InlineKeyboardButton("⚽ Live Fixtures & Odds", callback_data="view_matches")
-    btn_my_tickets = types.InlineKeyboardButton("🎟️ My Cash Tickets", callback_data="my_tickets")
-    btn_help = types.InlineKeyboardButton("👑 VIP Support", callback_data="support")
-    markup.add(btn_matches)
-    markup.add(btn_my_tickets, btn_help)
-
-    text = (
-        f"{GOLD_HEADER}"
-        f"<i>Welcome, <b>{message.from_user.first_name}</b></i> 👑\n\n"
-        f"⚡ <b>Status:</b> Premium VIP Access\n"
-        f"🪙 <b>Payment System:</b> Admin Cash Verification\n\n"
-        f"Select an option below to browse active fixtures or inspect your ticket slips:"
-    )
-    bot.send_message(message.chat.id, text, reply_markup=markup)
-
-# ------------------- CALLBACK HANDLERS -------------------
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callbacks(call):
-    conn = get_db()
-    c = conn.cursor()
-
-    if call.data == "view_matches":
-        c.execute("SELECT * FROM matches WHERE status = 'UPCOMING'")
-        matches = c.fetchall()
-        
-        if not matches:
-            bot.answer_callback_query(call.id, "No active fixtures right now!")
-            return
-
-        markup = types.InlineKeyboardMarkup()
-        for m in matches:
-            btn_text = f"⚔️ {m['team_a']} vs {m['team_b']}"
-            markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"match_{m['id']}"))
-        
-        markup.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu"))
-        
-        text = f"{GOLD_HEADER}🔥 <b>AVAILABLE MATCH FIXTURES</b> 🔥\n\nChoose a fixture to view odds and register a bet slip:"
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
-    elif call.data.startswith("match_"):
-        match_id = int(call.data.split("_")[1])
-        c.execute("SELECT * FROM matches WHERE id = ?", (match_id,))
-        m = c.fetchone()
-
-        markup = types.InlineKeyboardMarkup(row_width=3)
-        b1 = types.InlineKeyboardButton(f"1: {m['team_a']} ({m['odds_a']})", callback_data=f"bet_{match_id}_TEAM_A")
-        bx = types.InlineKeyboardButton(f"X: Draw ({m['odds_draw']})", callback_data=f"bet_{match_id}_DRAW")
-        b2 = types.InlineKeyboardButton(f"2: {m['team_b']} ({m['odds_b']})", callback_data=f"bet_{match_id}_TEAM_B")
-        back = types.InlineKeyboardButton("🔙 Fixtures", callback_data="view_matches")
-        
-        markup.add(b1, bx, b2)
-        markup.add(back)
-
-        text = (
-            f"{GOLD_HEADER}"
-            f"⚔️ <b>{m['team_a'].upper()}</b> vs <b>{m['team_b'].upper()}</b>\n\n"
-            f"🥇 <b>{m['team_a']} Win:</b> <code>{m['odds_a']}</code>\n"
-            f"⚖️ <b>Draw:</b> <code>{m['odds_draw']}</code>\n"
-            f"🥈 <b>{m['team_b']} Win:</b> <code>{m['odds_b']}</code>\n\n"
-            f"<i>Tap your pick below to select outcome:</i>"
-        )
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
-    elif call.data.startswith("bet_"):
-        _, match_id, selection = call.data.split("_")
-        
-        # Prompt user to type stake in chat
-        msg = bot.send_message(
-            call.message.chat.id,
-            f"💰 <b>ENTER YOUR STAKE AMOUNT (₦):</b>\n"
-            f"<i>Reply to this message with the numerical amount (e.g. 2000).</i>"
-        )
-        bot.register_next_step_handler(msg, process_stake, int(match_id), selection)
-
-    elif call.data == "main_menu":
-        send_welcome(call.message)
-
+def update_balance(user_id, amount):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
     conn.close()
 
-# ------------------- STAKE & TICKET GENERATOR -------------------
-def process_stake(message, match_id, selection):
-    try:
-        stake = float(message.text.strip())
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT * FROM matches WHERE id = ?", (match_id,))
-        m = c.fetchone()
+def place_bet_db(user_id, match_name, selection, odds, stake):
+    potential = stake * odds
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (stake, user_id))
+    cursor.execute("""
+        INSERT INTO bets (user_id, match_name, selection, odds, stake, potential_payout)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, match_name, selection, odds, stake, potential))
+    bet_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return bet_id, potential
 
-        odds = m['odds_a'] if selection == 'TEAM_A' else (m['odds_draw'] if selection == 'DRAW' else m['odds_b'])
-        payout = round(stake * odds, 2)
+def get_user_bets(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT bet_id, match_name, selection, odds, stake, potential_payout, status FROM bets WHERE user_id = ? ORDER BY bet_id DESC LIMIT 5", (user_id,))
+    bets = cursor.fetchall()
+    conn.close()
+    return bets
 
-        # Unique Ticket Hash
-        ticket_code = "APX-" + hashlib.md5(f"{message.from_user.id}_{match_id}_{stake}".encode()).hexdigest()[:6].upper()
-        username = message.from_user.username or message.from_user.first_name
+# ---------------------------------------------------------
+# FIXTURE & ODDS CALCULATION
+# ---------------------------------------------------------
+# Real Madrid vs Manchester United
+# Match scheduled for 5:00 PM (17:00 local time)
+MATCH_DETAILS = {
+    "home": "Real Madrid",
+    "away": "Manchester United",
+    "kickoff": "Today / Tomorrow @ 5:00 PM",
+    "time_str": "17:00",
+    "format": "2x (30 Mins + 3 Mins Stoppage)",
+    "odds": {
+        "1": 2.10,      # Real Madrid Win
+        "X": 3.40,      # Draw
+        "2": 3.25,      # Manchester United Win
+        "O2.5": 1.85,   # Over 2.5 Goals
+        "U2.5": 1.95,   # Under 2.5 Goals
+        "BTTS_Y": 1.70, # Both Teams To Score - Yes
+        "BTTS_N": 2.10  # Both Teams To Score - No
+    }
+}
 
-        c.execute(
-            "INSERT INTO tickets (ticket_code, user_id, username, match_id, selection, stake, payout) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (ticket_code, message.from_user.id, username, match_id, selection, stake, payout)
+# ---------------------------------------------------------
+# UI KEYBOARDS & UI BUILDERS
+# ---------------------------------------------------------
+def main_menu_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    b1 = types.InlineKeyboardButton("🏆 Featured Fixtures", callback_data="view_fixtures")
+    b2 = types.InlineKeyboardButton("💳 VIP Wallet", callback_data="view_wallet")
+    b3 = types.InlineKeyboardButton("📜 Active Slips", callback_data="view_slips")
+    b4 = types.InlineKeyboardButton("⏱️ Live Match Schedule", callback_data="view_clock")
+    markup.add(b1, b2)
+    markup.add(b3, b4)
+    return markup
+
+def match_odds_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=3)
+    o = MATCH_DETAILS["odds"]
+    
+    # 1X2 Market
+    b_home = types.InlineKeyboardButton(f"1 (RM): {o['1']}", callback_data="bet_1")
+    b_draw = types.InlineKeyboardButton(f"X (Draw): {o['X']}", callback_data="bet_X")
+    b_away = types.InlineKeyboardButton(f"2 (MU): {o['2']}", callback_data="bet_2")
+    
+    # Goals Market
+    b_o25 = types.InlineKeyboardButton(f"Over 2.5: {o['O2.5']}", callback_data="bet_O2.5")
+    b_u25 = types.InlineKeyboardButton(f"Under 2.5: {o['U2.5']}", callback_data="bet_U2.5")
+    
+    # BTTS
+    b_btts_y = types.InlineKeyboardButton(f"BTTS Yes: {o['BTTS_Y']}", callback_data="bet_BTTS_Y")
+    b_btts_n = types.InlineKeyboardButton(f"BTTS No: {o['BTTS_N']}", callback_data="bet_BTTS_N")
+    
+    b_back = types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="main_menu")
+    
+    markup.add(b_home, b_draw, b_away)
+    markup.add(b_o25, b_u25)
+    markup.add(b_btts_y, b_btts_n)
+    markup.add(b_back)
+    return markup
+
+# ---------------------------------------------------------
+# BOT HANDLERS
+# ---------------------------------------------------------
+@bot.message_handler(commands=['start', 'menu'])
+def send_welcome(message):
+    user = get_user(message.from_user.id, message.from_user.first_name)
+    welcome_text = (
+        f"👑 <b>APEX BET VIP SPORTSBOOK</b>\n"
+        f"<i>Premium Automated Betting Terminal</i>\n\n"
+        f"👤 <b>Bettor:</b> {user[1]}\n"
+        f"💰 <b>Wallet Balance:</b> ₦{user[2]:,.2f}\n"
+        f"⚡ <b>System Status:</b> Operational\n\n"
+        f"Select an option below to view live odds or manage your account:"
+    )
+    bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu_keyboard())
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callbacks(call):
+    user_id = call.from_user.id
+    user = get_user(user_id, call.from_user.first_name)
+
+    if call.data == "main_menu":
+        text = (
+            f"👑 <b>APEX BET VIP SPORTSBOOK</b>\n\n"
+            f"👤 <b>Account:</b> {user[1]}\n"
+            f"💰 <b>Balance:</b> ₦{user[2]:,.2f}\n\n"
+            f"Select an option to proceed:"
         )
-        conn.commit()
-        conn.close()
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=main_menu_keyboard())
 
-        # Render Gold Ticket
-        ticket_card = (
-            f"{GOLD_HEADER}"
-            f"🎟️ <b>OFFICIAL BET SLIP GENERATED</b>\n"
-            f"<b>=======================</b>\n"
-            f"🔑 <b>Ticket Code:</b> <code>{ticket_code}</code>\n"
-            f"👤 <b>Player:</b> @{username}\n"
-            f"⚔️ <b>Match:</b> {m['team_a']} vs {m['team_b']}\n"
-            f"🎯 <b>Selection:</b> <code>{selection}</code> (@ {odds})\n"
+    elif call.data == "view_fixtures":
+        m = MATCH_DETAILS
+        text = (
+            f"⚽ <b>UPCOMING FEATURED FIXTURE</b>\n"
+            f"-----------------------------------------\n"
+            f"🔥 <b>{m['home']} vs {m['away']}</b>\n"
+            f"⏰ <b>Kickoff Time:</b> 5:00 PM Sharp\n"
+            f"⏱️ <b>Format:</b> {m['format']}\n"
+            f"-----------------------------------------\n"
+            f"<b>Match Odds (1X2 & Markets):</b>\n"
+            f"• Real Madrid (1): <code>{m['odds']['1']}</code>\n"
+            f"• Draw (X): <code>{m['odds']['X']}</code>\n"
+            f"• Man United (2): <code>{m['odds']['2']}</code>\n"
+            f"• Over 2.5 Goals: <code>{m['odds']['O2.5']}</code>\n"
+            f"• Both Teams To Score: <code>{m['odds']['BTTS_Y']}</code>\n\n"
+            f"<i>Tap a market below to select your wager:</i>"
+        )
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=match_odds_keyboard())
+
+    elif call.data.startswith("bet_"):
+        selection_key = call.data.replace("bet_", "")
+        odds = MATCH_DETAILS["odds"].get(selection_key, 2.00)
+        
+        # Standard default stake for quick placement
+        stake = 1000.00
+        
+        if user[2] < stake:
+            bot.answer_callback_query(call.id, "❌ Insufficient balance! Please deposit funds.", show_alert=True)
+            return
+
+        match_name = f"{MATCH_DETAILS['home']} vs {MATCH_DETAILS['away']}"
+        bet_id, potential = place_bet_db(user_id, match_name, selection_key, odds, stake)
+        
+        updated_user = get_user(user_id)
+        
+        text = (
+            f"✅ <b>BET SLIP CONFIRMED #APX-{bet_id}</b>\n"
+            f"-----------------------------------------\n"
+            f"⚽ <b>Match:</b> {match_name}\n"
+            f"⏰ <b>Kickoff:</b> 5:00 PM\n"
+            f"🎯 <b>Selection:</b> {selection_key}\n"
+            f"📊 <b>Odds:</b> {odds}\n"
             f"💵 <b>Stake:</b> ₦{stake:,.2f}\n"
-            f"🏆 <b>Potential Return:</b> <b>₦{payout:,.2f}</b>\n"
-            f"<b>=======================</b>\n"
-            f"📌 <b>Status:</b> 🟡 <code>PENDING CASH VERIFICATION</code>\n\n"
-            f"<i>Show this ticket code to the administrator to submit cash and validate your ticket.</i>"
+            f"🏆 <b>Potential Win:</b> ₦{potential:,.2f}\n"
+            f"-----------------------------------------\n"
+            f"💳 <b>Remaining Balance:</b> ₦{updated_user[2]:,.2f}"
         )
-        bot.send_message(message.chat.id, ticket_card)
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 Back to Fixtures", callback_data="view_fixtures"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
 
-        # Alert Admin
-        admin_alert = (
-            f"⚡ <b>NEW CASH TICKET REGISTERED</b>\n\n"
-            f"Code: <code>{ticket_code}</code>\n"
-            f"User: @{username} ({message.from_user.id})\n"
-            f"Stake: ₦{stake:,.2f}\n\n"
-            f"To validate cash receipt, execute:\n"
-            f"<code>/verify {ticket_code}</code>"
+    elif call.data == "view_wallet":
+        text = (
+            f"💳 <b>VIP WALLET OVERVIEW</b>\n"
+            f"-----------------------------------------\n"
+            f"👤 <b>Account Holder:</b> {user[1]}\n"
+            f"🆔 <b>User ID:</b> <code>{user[0]}</code>\n"
+            f"💵 <b>Available Balance:</b> ₦{user[2]:,.2f}\n"
+            f"-----------------------------------------\n"
+            f"<i>Use the quick action buttons below:</i>"
         )
-        bot.send_message(ADMIN_ID, admin_alert)
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        b_dep = types.InlineKeyboardButton("➕ Quick Deposit (₦5,000)", callback_data="quick_deposit")
+        b_back = types.InlineKeyboardButton("🔙 Back", callback_data="main_menu")
+        markup.add(b_dep)
+        markup.add(b_back)
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
 
-    except ValueError:
-        bot.reply_to(message, "❌ Invalid input. Please enter numbers only.")
+    elif call.data == "quick_deposit":
+        update_balance(user_id, 5000.00)
+        updated_user = get_user(user_id)
+        bot.answer_callback_query(call.id, "🎉 ₦5,000.00 successfully added to your balance!", show_alert=True)
+        
+        text = (
+            f"💳 <b>VIP WALLET OVERVIEW</b>\n"
+            f"-----------------------------------------\n"
+            f"👤 <b>Account Holder:</b> {updated_user[1]}\n"
+            f"💵 <b>Updated Balance:</b> ₦{updated_user[2]:,.2f}\n"
+            f"-----------------------------------------"
+        )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
 
-# ------------------- ADMIN CONTROLS -------------------
-# Format: /addmatch TeamA vs TeamB | OddsA | OddsDraw | OddsB
-@bot.message_handler(commands=['addmatch'])
-def admin_add_match(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        raw = message.text.replace("/addmatch ", "")
-        teams, oa, od, ob = [x.strip() for x in raw.split("|")]
-        ta, tb = [t.strip() for t in teams.split("vs")]
-
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("INSERT INTO matches (team_a, team_b, odds_a, odds_draw, odds_b) VALUES (?, ?, ?, ?, ?)",
-                  (ta, tb, float(oa), float(od), float(ob)))
-        conn.commit()
-        conn.close()
-
-        bot.reply_to(message, f"✅ <b>Match Created!</b>\n{ta} vs {tb} added to sportsbook.")
-    except Exception as e:
-        bot.reply_to(message, "⚠️ <b>Usage:</b>\n<code>/addmatch Chelsea vs Arsenal | 2.10 | 3.20 | 2.50</code>")
-
-@bot.message_handler(commands=['verify'])
-def admin_verify_ticket(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        ticket_code = message.text.split()[1].upper()
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("UPDATE tickets SET status = 'VALIDATED' WHERE ticket_code = ?", (ticket_code,))
-        c.execute("SELECT * FROM tickets WHERE ticket_code = ?", (ticket_code,))
-        t = c.fetchone()
-        conn.commit()
-        conn.close()
-
-        if t:
-            bot.reply_to(message, f"✅ Ticket <code>{ticket_code}</code> Status updated to <b>VALIDATED</b>!")
-            bot.send_message(t['user_id'], f"🎉 <b>CASH RECEIVED!</b>\nYour ticket <code>{ticket_code}</code> is now <b>VALIDATED</b>!")
+    elif call.data == "view_slips":
+        bets = get_user_bets(user_id)
+        if not bets:
+            text = "📜 <b>ACTIVE SLIPS</b>\n\nYou currently have no active bet slips placed."
         else:
-            bot.reply_to(message, "❌ Ticket code not found.")
-    except Exception:
-        bot.reply_to(message, "⚠️ <b>Usage:</b> <code>/verify APX-XXXXXX</code>")
+            text = "📜 <b>YOUR RECENT BET SLIPS</b>\n-----------------------------------------\n"
+            for b in bets:
+                text += (
+                    f"🎟️ <b>Slip #APX-{b[0]}</b> | Status: <b>{b[6]}</b>\n"
+                    f"⚽ {b[1]}\n"
+                    f"🎯 Pick: {b[2]} @ {b[3]} | Stake: ₦{b[4]:,.2f}\n"
+                    f"🏆 Return: ₦{b[5]:,.2f}\n"
+                    f"-----------------------------------------\n"
+                )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
 
-print("⚡ Apex Bet VIP Bot Running...")
-bot.infinity_polling()
+    elif call.data == "view_clock":
+        text = (
+            f"⏱️ <b>MATCH TIMELINE & SCHEDULE</b>\n"
+            f"-----------------------------------------\n"
+            f"⚽ <b>Fixture:</b> Real Madrid vs Manchester United\n"
+            f"⏰ <b>Kickoff Time:</b> 5:00 PM Sharp\n\n"
+            f"📌 <b>Timeline breakdown:</b>\n"
+            f"• <b>5:00 PM:</b> First Half Kickoff (30m + 3m stoppage)\n"
+            f"• <b>5:33 PM:</b> Half Time Break (10 mins rest)\n"
+            f"• <b>5:43 PM:</b> Second Half Kickoff (30m + 3m stoppage)\n"
+            f"• <b>6:16 PM:</b> Full Time Whistle (66 Total Mins)\n"
+            f"-----------------------------------------\n"
+            f"<i>Betting markets close automatically at 5:00 PM.</i>"
+        )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="main_menu"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+# ---------------------------------------------------------
+# BOT STARTUP
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    print("⚡ Apex Bet VIP Bot Running...")
+    bot.infinity_polling()
