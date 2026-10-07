@@ -3,7 +3,6 @@ import sqlite3
 import random
 import string
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from flask import Flask, render_template_string, request, jsonify
 import telebot
 from telebot import types
@@ -12,8 +11,8 @@ from telebot import types
 # ENVIRONMENT & BOT CONFIGURATION
 # ---------------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID")  # Numeric Telegram User ID of Admin
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://your-render-app-name.onrender.com")
+ADMIN_ID = os.getenv("ADMIN_ID")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://my-website-nwa5.onrender.com").rstrip("/")
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is not set!")
@@ -24,7 +23,7 @@ app = Flask(__name__)
 DB_NAME = "apex_nexora.db"
 
 # ---------------------------------------------------------
-# DATABASE INITIALIZATION & HELPERS
+# DATABASE INITIALIZATION
 # ---------------------------------------------------------
 def get_db():
     conn = sqlite3.connect(DB_NAME)
@@ -35,7 +34,7 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     
-    # Users table: Initial balance defaults to 0.00
+    # Users table: Defaults balance to 0.00 until approved
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -45,7 +44,7 @@ def init_db():
         )
     """)
     
-    # Deposits table
+    # Deposit Requests Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS deposit_requests (
             deposit_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +55,7 @@ def init_db():
         )
     """)
     
-    # Bets table with unique access code field
+    # Bets Table with strict Bet Access Codes
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS bets (
             bet_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,14 +69,12 @@ def init_db():
             status TEXT DEFAULT 'PENDING'
         )
     """)
-    
     conn.commit()
     conn.close()
 
 init_db()
 
 def generate_bet_code():
-    """Generates a secure 8-character unique alphanumeric bet code."""
     chars = string.ascii_uppercase + string.digits
     return "NEX-" + "".join(random.choices(chars, k=6))
 
@@ -98,7 +95,7 @@ def get_or_create_user(user_id, username="Bettor"):
     return user
 
 # ---------------------------------------------------------
-# FLASK WEB APP ROUTES (MINI APP ENDPOINTS)
+# MINI APP FRONTEND HTML (PINK & GREEN THEME)
 # ---------------------------------------------------------
 WEBAPP_HTML = """
 <!DOCTYPE html>
@@ -169,14 +166,6 @@ WEBAPP_HTML = """
             border: 1px solid var(--pink-accent);
         }
 
-        .section-title {
-            font-size: 14px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin: 20px 0 10px 0;
-        }
-
         .card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
@@ -185,16 +174,8 @@ WEBAPP_HTML = """
             margin-bottom: 15px;
         }
 
-        .input-group {
-            margin-bottom: 12px;
-        }
-
-        .input-group label {
-            display: block;
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-bottom: 6px;
-        }
+        .input-group { margin-bottom: 12px; }
+        .input-group label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
 
         .input-field {
             width: 100%;
@@ -208,11 +189,6 @@ WEBAPP_HTML = """
             box-sizing: border-box;
         }
 
-        .input-field:focus {
-            outline: none;
-            border-color: var(--pink-accent);
-        }
-
         .btn {
             width: 100%;
             padding: 14px;
@@ -223,33 +199,12 @@ WEBAPP_HTML = """
             letter-spacing: 1px;
             text-transform: uppercase;
             cursor: pointer;
-            transition: all 0.2s ease;
         }
 
-        .btn-pink {
-            background: var(--pink-accent);
-            color: #ffffff;
-            box-shadow: 0 0 12px var(--pink-glow);
-        }
+        .btn-pink { background: var(--pink-accent); color: #ffffff; box-shadow: 0 0 12px var(--pink-glow); }
+        .btn-green { background: var(--green-accent); color: #0d0e12; box-shadow: 0 0 12px var(--green-glow); }
 
-        .btn-green {
-            background: var(--green-accent);
-            color: #0d0e12;
-            box-shadow: 0 0 12px var(--green-glow);
-        }
-
-        .btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        .odds-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            margin-top: 10px;
-        }
-
+        .odds-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
         .odds-btn {
             background: #0d0e12;
             border: 1px solid var(--border-color);
@@ -260,23 +215,11 @@ WEBAPP_HTML = """
             font-size: 12px;
             cursor: pointer;
         }
-
-        .odds-btn span {
-            display: block;
-            color: var(--green-accent);
-            font-weight: bold;
-            font-size: 14px;
-            margin-top: 4px;
-        }
-
-        .odds-btn.selected {
-            border-color: var(--pink-accent);
-            background: #ff2a8515;
-        }
+        .odds-btn span { display: block; color: var(--green-accent); font-weight: bold; font-size: 14px; margin-top: 4px; }
+        .odds-btn.selected { border-color: var(--pink-accent); background: #ff2a8515; }
     </style>
 </head>
 <body>
-
     <div class="header-card">
         <div class="header-title">Nexora VIP Terminal</div>
         <div class="balance-box">₦<span id="user-balance">0.00</span></div>
@@ -286,7 +229,7 @@ WEBAPP_HTML = """
     <div class="card">
         <div class="input-group">
             <label>ENTER BET ACCESS CODE</label>
-            <input type="text" id="bet-code-input" class="input-field" placeholder="e.g. NEX-AB1234" uppercase>
+            <input type="text" id="bet-code-input" class="input-field" placeholder="e.g. NEX-AB1234">
         </div>
         <button id="verify-code-btn" class="btn btn-pink" onclick="verifyCode()">Verify Access Code</button>
     </div>
@@ -296,18 +239,9 @@ WEBAPP_HTML = """
         <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">Format: 2x (30 Mins + 3 Mins Stoppage)</div>
         
         <div class="odds-grid">
-            <div class="odds-btn" onclick="selectMarket('1', 2.10, this)">
-                RM (1)
-                <span>2.10</span>
-            </div>
-            <div class="odds-btn" onclick="selectMarket('X', 3.40, this)">
-                Draw (X)
-                <span>3.40</span>
-            </div>
-            <div class="odds-btn" onclick="selectMarket('2', 3.25, this)">
-                MU (2)
-                <span>3.25</span>
-            </div>
+            <div class="odds-btn" onclick="selectMarket('1', 2.10, this)">RM (1)<span>2.10</span></div>
+            <div class="odds-btn" onclick="selectMarket('X', 3.40, this)">Draw (X)<span>3.40</span></div>
+            <div class="odds-btn" onclick="selectMarket('2', 3.25, this)">MU (2)<span>3.25</span></div>
         </div>
 
         <div style="margin-top: 15px;">
@@ -325,7 +259,6 @@ WEBAPP_HTML = """
         let selectedMarket = null;
         let selectedOdds = 0;
         let activeBetCode = '';
-
         const userId = tg.initDataUnsafe?.user?.id || 0;
 
         async function fetchUserData() {
@@ -335,17 +268,12 @@ WEBAPP_HTML = """
                 const data = await res.json();
                 document.getElementById('user-balance').innerText = data.balance.toFixed(2);
                 document.getElementById('account-status').innerText = data.account_status;
-            } catch (e) {
-                console.error(e);
-            }
+            } catch (e) { console.error(e); }
         }
 
         async function verifyCode() {
             const code = document.getElementById('bet-code-input').value.trim();
-            if (!code) {
-                tg.showAlert('Please enter your Bet Access Code.');
-                return;
-            }
+            if (!code) { tg.showAlert('Please enter your Bet Access Code.'); return; }
 
             const res = await fetch('/api/verify-code', {
                 method: 'POST',
@@ -403,6 +331,9 @@ WEBAPP_HTML = """
 </html>
 """
 
+# ---------------------------------------------------------
+# FLASK WEB APP ROUTES
+# ---------------------------------------------------------
 @app.route('/')
 def index():
     return render_template_string(WEBAPP_HTML)
@@ -416,7 +347,8 @@ def api_get_user(user_id):
         "account_status": user["account_status"]
     })
 
-@app.route('/api/verify-code', method=['POST'])
+# FIXED: 'methods' is plural here to avoid the Flask crash
+@app.route('/api/verify-code', methods=['POST'])
 def api_verify_code():
     data = request.json
     user_id = data.get('user_id')
@@ -432,6 +364,7 @@ def api_verify_code():
         return jsonify({"success": True})
     return jsonify({"success": False, "message": "Invalid code or bet already placed."})
 
+# FIXED: 'methods' is plural here to avoid the Flask crash
 @app.route('/api/place-bet', methods=['POST'])
 def api_place_bet():
     data = request.json
@@ -448,8 +381,6 @@ def api_place_bet():
 
     conn = get_db()
     cursor = conn.cursor()
-    
-    # Deduct balance & confirm wager against generated code
     cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (stake, user_id))
     cursor.execute("""
         UPDATE bets 
@@ -463,7 +394,7 @@ def api_place_bet():
     return jsonify({"success": True})
 
 # ---------------------------------------------------------
-# TELEGRAM BOT HANDLERS & WORKFLOWS
+# TELEGRAM BOT HANDLERS
 # ---------------------------------------------------------
 @bot.message_handler(commands=['start', 'menu'])
 def cmd_start(message):
@@ -471,9 +402,8 @@ def cmd_start(message):
     user = get_or_create_user(user_id, message.from_user.first_name)
 
     markup = types.InlineKeyboardMarkup(row_width=1)
+    webapp_info = types.WebAppInfo(url=WEBAPP_URL)
     
-    # Mini App Launch Button
-    webapp_info = types.WebAppInfo(f"{WEBAPP_URL}")
     btn_launch = types.InlineKeyboardButton("🚀 Launch Nexora VIP Manager", webapp=webapp_info)
     btn_deposit = types.InlineKeyboardButton("💳 Request Deposit (₦100)", callback_data="req_deposit")
     btn_generate_code = types.InlineKeyboardButton("🔑 Generate Bet Access Code", callback_data="gen_code")
@@ -506,7 +436,6 @@ def handle_callbacks(call):
 
         bot.answer_callback_query(call.id, "Deposit request for ₦100 submitted to Admin.", show_alert=True)
 
-        # Notify Admin for manual cash confirmation
         if ADMIN_ID:
             admin_markup = types.InlineKeyboardMarkup(row_width=2)
             b_approve = types.InlineKeyboardButton("✅ Approve ₦100", callback_data=f"adm_approve_{dep_id}_{user_id}")
@@ -542,10 +471,8 @@ def handle_callbacks(call):
         )
         bot.send_message(call.message.chat.id, msg)
 
-    # ADMIN APPROVAL / REJECTION ACTIONS
     elif call.data.startswith("adm_approve_"):
         _, _, dep_id, target_user_id = call.data.split("_")
-        
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("UPDATE deposit_requests SET status = 'APPROVED' WHERE deposit_id = ?", (dep_id,))
@@ -558,7 +485,6 @@ def handle_callbacks(call):
 
     elif call.data.startswith("adm_reject_"):
         _, _, dep_id, target_user_id = call.data.split("_")
-        
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("UPDATE deposit_requests SET status = 'REJECTED' WHERE deposit_id = ?", (dep_id,))
@@ -568,15 +494,8 @@ def handle_callbacks(call):
         bot.edit_message_text(f"❌ Rejected Deposit #{dep_id}.", call.message.chat.id, call.message.message_id)
         bot.send_message(target_user_id, "❌ <b>DEPOSIT REJECTED</b>\n\nYour deposit request was not confirmed. Contact Admin.")
 
-# ---------------------------------------------------------
-# ADMIN SETTLEMENT COMMANDS (WIN/LOSS NOTIFICATIONS)
-# ---------------------------------------------------------
 @bot.message_handler(commands=['settle'])
 def cmd_settle(message):
-    """
-    Usage: /settle <bet_code> <win/loss>
-    Admin command to settle bets and dispatch customer notifications.
-    """
     if str(message.from_user.id) != str(ADMIN_ID):
         return
 
@@ -605,7 +524,6 @@ def cmd_settle(message):
         cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (payout, target_user_id))
         conn.commit()
 
-        # Customer Win Notification
         msg = (
             f"🏆 <b>BET SLIP RESULT: WON</b>\n"
             f"-----------------------------------------\n"
@@ -621,7 +539,6 @@ def cmd_settle(message):
         cursor.execute("UPDATE bets SET status = 'LOST' WHERE bet_code = ?", (code,))
         conn.commit()
 
-        # Customer Loss Notification
         msg = (
             f"📉 <b>BET SLIP RESULT: LOST</b>\n"
             f"-----------------------------------------\n"
@@ -638,10 +555,11 @@ def cmd_settle(message):
 # SERVER STARTUP
 # ---------------------------------------------------------
 def run_bot():
-    bot.infinity_polling()
+    print("⚡ Nexora Telegram Bot Starting...")
+    bot.remove_webhook()
+    bot.infinity_polling(skip_pending=True)
 
 if __name__ == "__main__":
-    # Run Telegram Polling in a background thread alongside Flask WebApp
     threading.Thread(target=run_bot, daemon=True).start()
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
