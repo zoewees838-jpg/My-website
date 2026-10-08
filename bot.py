@@ -11,8 +11,8 @@ from telebot import types
 # CONFIGURATION & ENVIRONMENT SETUP
 # ---------------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8781475029:AAHfj7KezIayBSJKOO1GkUkMdeC6BWeeF-8").strip()
-ADMIN_ID = os.getenv("ADMIN_ID", "0")
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://my-website-nwa5.onrender.com").rstrip("/")
+ADMIN_ID = os.getenv("ADMIN_ID", "0").strip()
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://my-website-nwa5.onrender.com").strip().rstrip("/")
 FOOTBALL_API_KEY = os.getenv("FOOTBALL_API_KEY", "").strip()
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
@@ -20,8 +20,8 @@ app = Flask(__name__)
 
 DB_NAME = "apex_nexora.db"
 
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-WEBHOOK_URL = f"{WEBAPP_URL}{WEBHOOK_PATH}"
+# Clean static webhook URL
+WEBHOOK_URL = f"{WEBAPP_URL}/webhook"
 
 # ---------------------------------------------------------
 # DATABASE SETUP
@@ -351,7 +351,7 @@ def index():
 def api_matches():
     return jsonify(fetch_live_matches())
 
-@app.route(WEBHOOK_PATH, methods=['POST'])
+@app.route('/webhook', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
@@ -367,7 +367,7 @@ def set_webhook_route():
         success = bot.set_webhook(url=WEBHOOK_URL)
         if success:
             return f"Webhook set successfully to {WEBHOOK_URL}", 200
-        return "Failed to set webhook", 500
+        return f"Failed to set webhook to {WEBHOOK_URL}", 500
     except Exception as e:
         return f"Webhook Error: {str(e)}", 500
 
