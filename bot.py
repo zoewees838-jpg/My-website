@@ -12,7 +12,7 @@ from telebot import types
 # ---------------------------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_ID = os.getenv("ADMIN_ID", "0").strip()
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://my-website-nwa5.onrender.com").strip().rstrip("/")
+WEBAPP_URL = "https://my-website-nwa5.onrender.com"
 FOOTBALL_API_KEY = os.getenv("FOOTBALL_API_KEY", "").strip()
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
@@ -20,9 +20,8 @@ app = Flask(__name__)
 
 DB_NAME = "apex_nexora.db"
 
-# Secure dynamic webhook path based on bot token
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-WEBHOOK_URL = f"{WEBAPP_URL}{WEBHOOK_PATH}"
+# Fixed static webhook URL
+WEBHOOK_URL = "https://my-website-nwa5.onrender.com/webhook"
 
 # ---------------------------------------------------------
 # DATABASE SETUP
@@ -352,7 +351,7 @@ def index():
 def api_matches():
     return jsonify(fetch_live_matches())
 
-@app.route(WEBHOOK_PATH, methods=['POST'])
+@app.route('/webhook', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
@@ -365,10 +364,11 @@ def webhook():
 def set_webhook_route():
     try:
         bot.remove_webhook()
-        success = bot.set_webhook(url=WEBHOOK_URL)
+        target_url = "https://my-website-nwa5.onrender.com/webhook"
+        success = bot.set_webhook(url=target_url)
         if success:
-            return f"Webhook set successfully to {WEBHOOK_URL}", 200
-        return f"Failed to set webhook to {WEBHOOK_URL}", 500
+            return f"Webhook set successfully to {target_url}", 200
+        return f"Failed to set webhook to {target_url}", 500
     except Exception as e:
         return f"Webhook Error: {str(e)}", 500
 
