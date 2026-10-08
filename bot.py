@@ -362,11 +362,14 @@ def webhook():
 
 @app.route('/set_webhook')
 def set_webhook_route():
-    bot.remove_webhook()
-    success = bot.set_webhook(url=WEBHOOK_URL)
-    if success:
-        return f"Webhook set successfully to {WEBHOOK_URL}", 200
-    return "Failed to set webhook", 500
+    try:
+        bot.remove_webhook()
+        success = bot.set_webhook(url=WEBHOOK_URL)
+        if success:
+            return f"Webhook set successfully to {WEBHOOK_URL}", 200
+        return "Failed to set webhook", 500
+    except Exception as e:
+        return f"Webhook Error: {str(e)}", 500
 
 @app.route('/api/user/<int:user_id>')
 def api_get_user(user_id):
