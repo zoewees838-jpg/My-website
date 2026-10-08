@@ -77,41 +77,40 @@ def init_db():
 init_db()
 
 # ---------------------------------------------------------
-# LIVE MATCHES API HELPER
+# DIRECT FOOTBALL DATA API HELPER
 # ---------------------------------------------------------
 def fetch_live_matches():
-    """Fetches live football matches worldwide using API-Football"""
+    """Fetches matches directly from Football-Data.org without RapidAPI"""
     if not FOOTBALL_API_KEY:
-        # Fallback mock data if no API key is provided yet
         return [
-            {"league": "Premier League", "home": "Arsenal", "away": "Chelsea", "score": "2 - 1", "status": "65'"},
-            {"league": "La Liga", "home": "Real Madrid", "away": "Barcelona", "score": "1 - 1", "status": "42'"},
-            {"league": "UEFA Champions League", "home": "Bayern Munich", "away": "PSG", "score": "0 - 0", "status": "12'"}
+            {"league": "Premier League", "home": "Arsenal", "away": "Chelsea", "score": "2 - 1", "status": "IN_PLAY"},
+            {"league": "La Liga", "home": "Real Madrid", "away": "Barcelona", "score": "1 - 1", "status": "IN_PLAY"},
+            {"league": "UEFA Champions League", "home": "Bayern Munich", "away": "PSG", "score": "0 - 0", "status": "TIMED"}
         ]
     
-    url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
-    headers = {
-        "X-RapidAPI-Key": FOOTBALL_API_KEY,
-        "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
-    }
-    params = {"live": "all"}
+    url = "https://api.football-data.org/v4/matches"
+    headers = {"X-Auth-Token": FOOTBALL_API_KEY}
     
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = requests.get(url, headers=headers, timeout=10)
         data = response.json()
         matches = []
         
-        for item in data.get("response", [])[:10]:  # Top 10 live matches
+        for item in data.get("matches", [])[:10]:
+            home_score = item["score"]["fullTime"]["home"]
+            away_score = item["score"]["fullTime"]["away"]
+            score_str = f"{home_score if home_score is not None else 0} - {away_score if away_score is not None else 0}"
+            
             matches.append({
-                "league": item["league"]["name"],
-                "home": item["teams"]["home"]["name"],
-                "away": item["teams"]["away"]["name"],
-                "score": f"{item['goals']['home']} - {item['goals']['away']}",
-                "status": f"{item['fixture']['status']['elapsed']}'" if item['fixture']['status']['elapsed'] else "LIVE"
+                "league": item["competition"]["name"],
+                "home": item["homeTeam"]["name"],
+                "away": item["awayTeam"]["name"],
+                "score": score_str,
+                "status": item["status"]
             })
         return matches
     except Exception as e:
-        print(f"API Error: {e}")
+        print(f"Football API Error: {e}")
         return []
 
 def generate_bet_code():
@@ -135,7 +134,7 @@ def get_or_create_user(user_id, username="", first_name="Bettor"):
     return user
 
 # ---------------------------------------------------------
-# MINI APP UI (WITH LIVE MATCHES SECTION)
+# MINI APP UI
 # ---------------------------------------------------------
 WEBAPP_HTML = """
 <!DOCTYPE html>
@@ -265,11 +264,11 @@ WEBAPP_HTML = """
     </div>
 
     <div class="section-title">
-        <span>⚽ Worldwide Live Matches</span>
-        <span class="time-badge">REAL-TIME</span>
+        <span>⚽ Global Match Center</span>
+        <span class="time-badge">LIVE</span>
     </div>
     <div id="match-list">
-        <div class="match-card" style="text-align:center; color: var(--text-muted);">Loading live games...</div>
+        <div class="match-card" style="text-align:center; color: var(--text-muted);">Loading global matches...</div>
     </div>
 
     <script>
@@ -293,7 +292,7 @@ WEBAPP_HTML = """
                 .then(matches => {
                     const container = document.getElementById('match-list');
                     if(matches.length === 0) {
-                        container.innerHTML = '<div class="match-card" style="text-align:center; color:var(--text-muted);">No live matches playing right now.</div>';
+                        container.innerHTML = '<div class="match-card" style="text-align:center; color:var(--text-muted);">No matches scheduled right now.</div>';
                         return;
                     }
                     container.innerHTML = matches.map(m => `
@@ -331,9 +330,7 @@ WEBAPP_HTML = """
                 body: JSON.stringify({user_id: userId})
             })
             .then(r => r.json())
-            .then(d => {
-                tg.showAlert(`Access Code Generated: ${d.code}`);
-            });
+            .then(d => tg.showAlert(`Access Code Generated: ${d.code}`));
         }
 
         loadUserData();
@@ -420,7 +417,7 @@ def cmd_start(message):
     webapp_info = types.WebAppInfo(url=WEBAPP_URL)
     markup.add(
         types.InlineKeyboardButton("🚀 Launch Nexora VIP Manager", webapp=webapp_info),
-        types.InlineKeyboardButton("⚽ View Live Scores", callback_data="view_matches"),
+        types.InlineKeyboardButton("⚽ View Global Matches", callback_data="view_matches"),
         types.InlineKeyboardButton("💳 Request Deposit (₦100)", callback_data="req_deposit"),
         types.InlineKeyboardButton("🔑 Generate Access Code", callback_data="gen_code")
     )
@@ -432,7 +429,7 @@ def cmd_start(message):
         f"💰 <b>Balance:</b> ₦{user['balance']:,.2f}\n"
         f"🏆 <b>VIP Tier:</b> {user['vip_tier']}\n"
         f"-----------------------------------------\n"
-        f"<i>Tap below to open the Mini App or check worldwide live scores.</i>"
+        f"<i>Tap below to open the Mini App or check global scores.</i>"
     )
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
@@ -444,7 +441,7 @@ def handle_callbacks(call):
             bot.send_message(call.message.chat.id, "No live matches available right now.")
             return
         
-        msg = "⚽ <b>WORLDWIDE LIVE MATCHES</b>\n-----------------------------------------\n"
+        msg = "⚽ <b>GLOBAL MATCH CENTER</b>\n-----------------------------------------\n"
         for m in matches:
             msg += f"🏆 <b>{m['league']}</b> ({m['status']})\n👉 {m['home']} <b>{m['score']}</b> {m['away']}\n\n"
         bot.send_message(call.message.chat.id, msg)
