@@ -10,7 +10,7 @@ from telebot import types
 # ---------------------------------------------------------
 # CONFIGURATION & ENVIRONMENT SETUP
 # ---------------------------------------------------------
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8706915052:AAEfBy3Kh7BNi2FiyHwaPvhzgqX4L8uP9Nw").strip()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8781475029:AAHfj7KezIayBSJKOO1GkUkMdeC6BWeeF-8").strip()
 ADMIN_ID = os.getenv("ADMIN_ID", "0")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://my-website-nwa5.onrender.com").rstrip("/")
 
